@@ -1,0 +1,12 @@
+﻿  InvertedIndex.cpp
+F:\vs_repos\Lightweight_Search_Engine\InvertedIndex.cpp(20,30): warning C4267: “初始化”: 从“size_t”转换到“jia::DocId”，可能丢失数据
+  main.cpp
+  QueryProcessor.cpp
+F:\vs_repos\Lightweight_Search_Engine\QueryProcessor.cpp(27,11): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+F:\vs_repos\Lightweight_Search_Engine\QueryProcessor.cpp(37,15): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+  Tokenizer.cpp
+  正在生成代码...
+    正在创建库 F:\vs_repos\Lightweight_Search_Engine\x64\Debug\Lightweight_Search_Engine.lib 和对象 F:\vs_repos\Lightweight_Search_Engine\x64\Debug\Lightweight_Search_Engine.exp
+  Lightweight_Search_Engine.vcxproj -> F:\vs_repos\Lightweight_Search_Engine\x64\Debug\Lightweight_Search_Engine.exe
+  'pwsh.exe' 不是内部或外部命令，也不是可运行的程序
+  或批处理文件。

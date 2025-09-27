@@ -1,0 +1,2 @@
+F:\vs_repos\Lightweight_Search_Engine\x64\Debug\boost_serialization-vc143-mt-gd-x64-1_88.dll
+F:\vs_repos\Lightweight_Search_Engine\Lightwei.c3786135\x64\Debug\Lightwei.2261023E.Up2Date
