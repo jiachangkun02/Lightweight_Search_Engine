@@ -3,29 +3,35 @@
 #include <algorithm>
 #include <execution>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
+#include <cmath>
 
 using namespace jia;
 using namespace std;
 
-// ¹¹Ôìº¯Êı£º±£´æ¶Ôµ¹ÅÅË÷ÒıµÄÒıÓÃ£¬ºóĞø²éÑ¯¶¼»ùÓÚÕâ¸öË÷Òı
+// æ„é€ å‡½æ•°ï¼šä¿å­˜å¯¹å€’æ’ç´¢å¼•çš„å¼•ç”¨ï¼Œæä¾›æŸ¥è¯¢å…¥å£çš„ä¸Šä¸‹æ–‡ã€‚
 QueryProcessor::QueryProcessor(InvertedIndex& index)
     :index_(index)
 {
     
 }
 
-// ¶ÔÍâ²éÑ¯Èë¿Ú£º°Ñ´«ÈëµÄ²éÑ¯×Ö·û´®½»¸ø²¼¶û²éÑ¯ÆÀ¹ÀÆ÷²¢·µ»Ø½á¹û
-std::vector<ScoredDoc> QueryProcessor::process(const std::string& term)
+// å¯¹å¤–æŸ¥è¯¢å…¥å£ï¼šæ¥æ”¶æŸ¥è¯¢å­—ç¬¦ä¸²ä¸æŸ¥è¯¢å‚æ•°ï¼Œäº¤ç»™å¸ƒå°”è§£æå™¨å¹¶è¿”å›æœ€ç»ˆæ’åºç»“æœï¼›å†…éƒ¨ä¼šèåˆé»˜è®¤ BM25 é€‰é¡¹ã€‚
+std::vector<ScoredDoc> QueryProcessor::process(const std::string& term, const QueryOptions& options)
 {
-    return evaluate_boolean_query(term);
+    // return evaluate_boolean_query(term);
+    QueryOptions merged = options;
+    merged.use_bm25 = merged.use_bm25 || this->default_use_bm25_;
+    return evaluate_boolean_query(term, merged);
 }
 
-// Ê¹ÓÃ TF-IDF ¶Ô¸ø¶¨µÄ´Ê¼¯ºÏ½øĞĞ´ò·Ö²¢·µ»ØÅÅĞò½á¹û
-// ÆÀ·ÖÂß¼­£º
-//  1) ¼ÆËãÃ¿¸ö´ÊµÄ idf = log(1 + N / df)
-//  2) ¶ÔÃ¿¸ö³öÏÖµÄÎÄµµ£¬ÀÛ¼Ó tf * idf
-//  3) ÓÃÎÄµµ³¤¶È¹éÒ»»¯·ÖÊı£¨³ıÒÔÎÄµµ³¤¶È£©
-//  4) °´·ÖÊı½µĞò·µ»Ø
+// ä½¿ç”¨ TF-IDF å¯¹ç»™å®šçš„è¯é›†åˆè¿›è¡Œæ‰“åˆ†å¹¶è¿”å›æ’åºç»“æœ
+// è¯„åˆ†é€»è¾‘ï¼š
+//  1) è®¡ç®—æ¯ä¸ªè¯çš„ idf = log(1 + N / df)
+//  2) å¯¹æ¯ä¸ªå‡ºç°çš„æ–‡æ¡£ï¼Œç´¯åŠ  tf * idf
+//  3) ç”¨æ–‡æ¡£é•¿åº¦å½’ä¸€åŒ–åˆ†æ•°ï¼ˆé™¤ä»¥æ–‡æ¡£é•¿åº¦ï¼‰
+//  4) æŒ‰åˆ†æ•°é™åºè¿”å›
 std::vector<ScoredDoc> QueryProcessor::rank_TF_IDF(const std::vector<std::string>& terms) const
 {
     int N = index_.get_doc_count();
@@ -44,7 +50,7 @@ std::vector<ScoredDoc> QueryProcessor::rank_TF_IDF(const std::vector<std::string
             continue;
         }
 
-        // ÖØµã¼ÆËãÆÀ·Ö
+        // é‡ç‚¹è®¡ç®—è¯„åˆ†
         double idf=std::log(1.0+static_cast<double>(N)/df);
 
         const auto* posting_entries = index_.get_posting_entries(term);
@@ -67,11 +73,11 @@ std::vector<ScoredDoc> QueryProcessor::rank_TF_IDF(const std::vector<std::string
     std::vector<ScoredDoc> result;
     for (auto& pair : docIdWITHscores)
     {
-        // ÓÃÎÄµµ³¤¶È×ö¼òµ¥µÄ¹éÒ»»¯£¬±ÜÃâ³¤ÎÄµµÌìÈ»µÃ·Ö¹ı¸ß
+        // ç”¨æ–‡æ¡£é•¿åº¦åšç®€å•çš„å½’ä¸€åŒ–ï¼Œé¿å…é•¿æ–‡æ¡£å¤©ç„¶å¾—åˆ†è¿‡é«˜
         pair.second /= std::max(1, index_.get_docINF(pair.first).length);
         result.push_back({ pair.first,pair.second });
     }
-    // ½µĞòÅÅÁĞ£¬µÃ·Ö¸ßµÄÅÅÇ°Ãæ
+    // é™åºæ’åˆ—ï¼Œå¾—åˆ†é«˜çš„æ’å‰é¢
     std::sort(result.begin(), result.end(), [](const ScoredDoc& a, const ScoredDoc& b)
     {
         return a.score > b.score;
@@ -80,12 +86,151 @@ std::vector<ScoredDoc> QueryProcessor::rank_TF_IDF(const std::vector<std::string
     return result;
 }
 
-// ÆÀ¹ÀĞÎÈç: term1 AND term2 AND NOT term3 ... µÄ×Ó²éÑ¯
-// ¹æÔò£¨¼òµ¥°æ£©£º
-//  - ½« NOT ºóµÄ´ÊÊÕ¼¯µ½ negative_terms
-//  - ÆäÓà´Ê×÷Îª positive_terms
-//  - ¶Ô positive_terms ÓÃ TF-IDF ÅÅĞòµÃµ½ºòÑ¡¼¯
-//  - ´ÓºòÑ¡¼¯ÖĞÒÆ³ıÔÚ negative_terms ³öÏÖµÄÎÄµµ
+//  BM25 æ’åºå®ç°
+std::vector<ScoredDoc> QueryProcessor::rank_BM25(const std::vector<std::string>& terms) const
+{
+    int N = index_.get_doc_count();
+    if (N == 0)
+    {
+        return {};
+    }
+    double avg_len = index_.get_avg_doc_length();
+    if (avg_len <= 0.0)
+    {
+        avg_len = 1.0;
+    }
+    const double k1 = 1.5;
+    const double b = 0.75;
+    std::unordered_map<DocId, double> scores;
+    for (auto term : terms)
+    {
+        term = jia::to_lower(term);
+        int df = index_.get_term_frequency_inDoc(term);
+        if (df == 0)
+        {
+            continue;
+        }
+        double idf = std::log((static_cast<double>(N) - df + 0.5) / (df + 0.5) + 1.0);
+        const auto* postings = index_.get_posting_entries(term);
+        if (!postings)
+        {
+            continue;
+        }
+        for (const auto& entry : *postings)
+        {
+            double tf = static_cast<double>(entry.frequency);
+            double dl = std::max(1, index_.get_docINF(entry.doc_id_).length);
+            double denom = tf + k1 * (1 - b + b * (dl / avg_len));
+            double bm25 = idf * ((tf * (k1 + 1)) / denom);
+            scores[entry.doc_id_] += bm25;
+        }
+    }
+    std::vector<ScoredDoc> result;
+    for (const auto& p : scores)
+    {
+        result.push_back({ p.first, p.second });
+    }
+    std::sort(result.begin(), result.end(), [](const ScoredDoc& a, const ScoredDoc& b)
+    {
+        return a.score > b.score;
+    });
+    return result;
+}
+
+//  ç»Ÿä¸€å…¥å£ï¼šæ ¹æ®å¼€å…³é€‰æ‹© TF-IDF æˆ– BM25
+std::vector<ScoredDoc> QueryProcessor::rank_terms(const std::vector<std::string>& terms, bool use_bm25) const
+{
+    if (use_bm25)
+    {
+        return rank_BM25(terms);
+    }
+    return rank_TF_IDF(terms);
+}
+
+//  çŸ­è¯­æŸ¥è¯¢ï¼šè¦æ±‚è¿ç»­ä½ç½®åŒ¹é…
+std::vector<ScoredDoc> QueryProcessor::rank_phrase(const std::vector<std::string>& phrase_terms) const
+{
+    if (phrase_terms.empty())
+    {
+        return {};
+    }
+    const auto* first_postings = index_.get_posting_entries(phrase_terms[0]);
+    if (!first_postings)
+    {
+        return {};
+    }
+    std::unordered_map<DocId, double> scores;
+    for (const auto& first_entry : *first_postings)
+    {
+        bool all_found = true;
+        std::vector<const PostingEntry*> other_entries;
+        for (size_t i = 1; i < phrase_terms.size(); ++i)
+        {
+            const auto* postings = index_.get_posting_entries(phrase_terms[i]);
+            const PostingEntry* target = nullptr;
+            if (postings)
+            {
+                for (const auto& e : *postings)
+                {
+                    if (e.doc_id_ == first_entry.doc_id_)
+                    {
+                        target = &e;
+                        break;
+                    }
+                }
+            }
+            if (!target)
+            {
+                all_found = false;
+                break;
+            }
+            other_entries.push_back(target);
+        }
+        if (!all_found)
+        {
+            continue;
+        }
+        int phrase_hits = 0;
+        for (int pos : first_entry.position)
+        {
+            bool matched = true;
+            for (size_t i = 0; i < other_entries.size(); ++i)
+            {
+                int desired = pos + static_cast<int>(i) + 1;
+                if (std::find(other_entries[i]->position.begin(), other_entries[i]->position.end(), desired) == other_entries[i]->position.end())
+                {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched)
+            {
+                phrase_hits++;
+            }
+        }
+        if (phrase_hits > 0)
+        {
+            scores[first_entry.doc_id_] = static_cast<double>(phrase_hits);
+        }
+    }
+    std::vector<ScoredDoc> result;
+    for (const auto& p : scores)
+    {
+        result.push_back({ p.first, p.second });
+    }
+    std::sort(result.begin(), result.end(), [](const ScoredDoc& a, const ScoredDoc& b)
+    {
+        return a.score > b.score;
+    });
+    return result;
+}
+
+// è¯„ä¼°å½¢å¦‚: term1 AND term2 AND NOT term3 ... çš„å­æŸ¥è¯¢
+// è§„åˆ™ï¼ˆç®€å•ç‰ˆï¼‰ï¼š
+//  - å°† NOT åçš„è¯æ”¶é›†åˆ° negative_terms
+//  - å…¶ä½™è¯ä½œä¸º positive_terms
+//  - å¯¹ positive_terms ç”¨ TF-IDF æ’åºå¾—åˆ°å€™é€‰é›†
+//  - ä»å€™é€‰é›†ä¸­ç§»é™¤åœ¨ negative_terms å‡ºç°çš„æ–‡æ¡£
 std::vector<ScoredDoc> QueryProcessor::evaluate_AND_NOT_query(const std::vector<std::string>& tokens)
 {
     std::vector<std::string> positive_terms;
@@ -95,14 +240,36 @@ std::vector<ScoredDoc> QueryProcessor::evaluate_AND_NOT_query(const std::vector<
 
     for (const auto& token : tokens)
     {
-        std::string upper_token = to_lower(token);
-        std::transform(upper_token.begin(), upper_token.end(), upper_token.begin(), ::toupper);
-
-        if (upper_token=="AND")
+        // std::string upper_token = to_lower(token);
+        // std::transform(upper_token.begin(), upper_token.end(), upper_token.begin(), ::toupper);
+        //
+        // if (upper_token=="AND")
+        // {
+        //     continue;
+        // }
+        // else if (upper_token == "NOT")
+        // {
+        //     expect_NOT = true;
+        // }
+        // else
+        // {
+        //     if (expect_NOT)
+        //     {
+        //         negative_terms.push_back(token);
+        //         expect_NOT = false;
+        //     }
+        //     else
+        //     {
+        //         positive_terms.push_back(token);
+        //     }
+        // }
+        //  ç»Ÿä¸€å¯¹æ“ä½œç¬¦å¤§å°å†™ä¸æ•æ„Ÿï¼Œå¹¶å¯¹å®é™…æ£€ç´¢è¯ç»Ÿä¸€å°å†™ä»¥åŒ¹é…ç´¢å¼•
+        std::string normalized_token = jia::to_lower(token);
+        if (normalized_token == "and")
         {
             continue;
         }
-        else if (upper_token == "NOT")
+        else if (normalized_token == "not")
         {
             expect_NOT = true;
         }
@@ -110,12 +277,12 @@ std::vector<ScoredDoc> QueryProcessor::evaluate_AND_NOT_query(const std::vector<
         {
             if (expect_NOT)
             {
-                negative_terms.push_back(token);
+                negative_terms.push_back(normalized_token);
                 expect_NOT = false;
             }
             else
             {
-                positive_terms.push_back(token);
+                positive_terms.push_back(normalized_token);
             }
         }
     }
@@ -125,7 +292,7 @@ std::vector<ScoredDoc> QueryProcessor::evaluate_AND_NOT_query(const std::vector<
         return {};
     }
 
-    // ÏÈ¶ÔÕıÏî½øĞĞ TF-IDF ÅÅĞò
+    // å…ˆå¯¹æ­£é¡¹è¿›è¡Œ TF-IDF æ’åº
     auto ranked_result = rank_TF_IDF(positive_terms);
 
     if (negative_terms.empty())
@@ -133,7 +300,7 @@ std::vector<ScoredDoc> QueryProcessor::evaluate_AND_NOT_query(const std::vector<
         return ranked_result;
     }
 
-    // ÓÃ NOT ºóÃæµÄ´Ê¹ıÂËµô²»·ûºÏÌõ¼şµÄ½á¹û
+    // ç”¨ NOT åé¢çš„è¯è¿‡æ»¤æ‰ä¸ç¬¦åˆæ¡ä»¶çš„ç»“æœ
     std::unordered_set<DocId> excluded_doc;
     for (const auto& term : negative_terms)
     {
@@ -163,109 +330,313 @@ std::vector<ScoredDoc> QueryProcessor::evaluate_AND_NOT_query(const std::vector<
     
 }
 
-// ²¼¶û²éÑ¯Èë¿Ú£¬Ö§³Ö OR, AND, NOT µÄ¼òµ¥×éºÏ
-// ÊµÏÖË¼Â·£º
-//  - ÏÈÓÃ tokenizer °ÑÔ­Ê¼²éÑ¯ÇĞ·Ö³É token
-//  - ¸ù¾İ OR ½«²éÑ¯·Ö³ÉÈô¸É×Ó¾ä£¨Ã¿¸ö×Ó¾äÄÚ²¿°´ AND/NOT ´¦Àí£©
-//  - ¶ÔÃ¿¸ö×Ó¾äµ÷ÓÃ evaluate_AND_NOT_query »ñµÃ´ò·ÖÁĞ±í
-//  - ºÏ²¢¸÷×Ó¾äµÄ½á¹û£ºÍ¬Ò»ÎÄµµÈ¡×î¸ß·Ö
-//  - ×îºó²¢ĞĞÅÅĞò·µ»Ø
-std::vector<ScoredDoc> QueryProcessor::evaluate_boolean_query(const std::string& query_string)
+// å¸ƒå°”æŸ¥è¯¢å…¥å£ï¼Œæ”¯æŒ OR, AND, NOT çš„ç®€å•ç»„åˆ
+// å®ç°æ€è·¯ï¼š
+//  - å…ˆç”¨ tokenizer æŠŠåŸå§‹æŸ¥è¯¢åˆ‡åˆ†æˆ token
+//  - æ ¹æ® OR å°†æŸ¥è¯¢åˆ†æˆè‹¥å¹²å­å¥ï¼ˆæ¯ä¸ªå­å¥å†…éƒ¨æŒ‰ AND/NOT å¤„ç†ï¼‰
+//  - å¯¹æ¯ä¸ªå­å¥è°ƒç”¨ evaluate_AND_NOT_query è·å¾—æ‰“åˆ†åˆ—è¡¨
+//  - åˆå¹¶å„å­å¥çš„ç»“æœï¼šåŒä¸€æ–‡æ¡£å–æœ€é«˜åˆ†
+//  - æœ€åå¹¶è¡Œæ’åºè¿”å›
+std::vector<ScoredDoc> QueryProcessor::evaluate_boolean_query(const std::string& query_string, const QueryOptions& options)
 {
-    std::vector<std::string> raw_tokens = query_tokenizer_.tokenize_raw_query(query_string);
-
-
-    //std::istringstream iss(tokens);
-    //std::string token;
-    std::vector<std::vector<std::string>> OR_part;
-    std::vector<std::string> current_part;
-
-
-    /*while (iss>>token)
-    {
-        std::string upper_token=to_lower(token);
-        std::transform(upper_token.begin(), upper_token.end(), upper_token.begin(), ::toupper);
-
-
-        if (upper_token=="AND")
-        {
-            continue;
-        }
-        else if (upper_token == "NOT")
-        {
-            expect_NOT = true;
-        }
-        else
-        {
-            std::string ready_token=to_lower(upper_token);
-            if (expect_NOT==true)
-            {
-                negative_terms.push_back(ready_token);
-                expect_NOT = false;
-            }
-            else
-            {
-                positive_terms.push_back(ready_token);
-            }
-        }
-
-    }*/
-
-
-    
-    for (const auto & token : raw_tokens)
-    {
-        if (to_lower(token)=="or")
-        {
-            if (!current_part.empty())
-            {
-                OR_part.push_back(current_part);
-                current_part.clear();
-            }
-        }
-        else
-        {
-            current_part.push_back(token);
-        }
-    }
-
-    if (!current_part.empty())
-    {
-        OR_part.push_back(current_part);
-    }
-
-    if (OR_part.empty())
+    // std::vector<std::string> raw_tokens = query_tokenizer_.tokenize_raw_query(query_string);
+    //
+    // //std::istringstream iss(tokens);
+    // //std::string token;
+    // std::vector<std::vector<std::string>> OR_part;
+    // std::vector<std::string> current_part;
+    //
+    //
+    // /*while (iss>>token)
+    // {
+    //     std::string upper_token=to_lower(token);
+    //     std::transform(upper_token.begin(), upper_token.end(), upper_token.begin(), ::toupper);
+    //
+    //
+    //     if (upper_token=="AND")
+    //     {
+    //         continue;
+    //     }
+    //     else if (upper_token == "NOT")
+    //     {
+    //         expect_NOT = true;
+    //     }
+    //     else
+    //     {
+    //         std::string ready_token=to_lower(upper_token);
+    //         if (expect_NOT==true)
+    //         {
+    //             negative_terms.push_back(ready_token);
+    //             expect_NOT = false;
+    //         }
+    //         else
+    //         {
+    //             positive_terms.push_back(ready_token);
+    //         }
+    //     }
+    //
+    // }*/
+    //
+    //
+    // for (const auto & token : raw_tokens)
+    // {
+    //     if (to_lower(token)=="or")
+    //     {
+    //         if (!current_part.empty())
+    //         {
+    //             OR_part.push_back(current_part);
+    //             current_part.clear();
+    //         }
+    //     }
+    //     else
+    //     {
+    //         current_part.push_back(token);
+    //     }
+    // }
+    //
+    // if (!current_part.empty())
+    // {
+    //     OR_part.push_back(current_part);
+    // }
+    //
+    // if (OR_part.empty())
+    // {
+    //     return {};
+    // }
+    //
+    // std::unordered_map<DocId, double> merged_Scores;
+    // for (const auto & part : OR_part)
+    // {
+    //     auto result=evaluate_AND_NOT_query(part);
+    //     for (const auto & doc : result)
+    //     {
+    //         // åˆå¹¶ç­–ç•¥ï¼šåŒä¸€ doc å–æœ€å¤§çš„åˆ†æ•°ï¼ˆOR æ„å‘³ä»»ä¸€å­å¥å‘½ä¸­å³å¯ï¼‰
+    //         if (merged_Scores.find(doc.doc_id)==merged_Scores.end()||doc.score>merged_Scores[doc.doc_id])
+    //         {
+    //             merged_Scores[doc.doc_id] = doc.score;
+    //         }
+    //     }
+    // }
+    //
+    // std::vector<ScoredDoc> final_result;
+    // for (const auto & pair : merged_Scores)
+    // {
+    //     final_result.push_back({ pair.first,pair.second });
+    // }
+    //
+    //
+    // // å¹¶è¡Œæ’åºï¼ŒåŠ é€Ÿå¤§ç»“æœé›†çš„æ’åºæ“ä½œ
+    // std::sort(std::execution::par,final_result.begin(), final_result.end(), std::greater<ScoredDoc>());
+    //
+    // return final_result;
+    //  æ–°ç‰ˆï¼šæ”¯æŒæ‹¬å·ã€NOT ä¼˜å…ˆã€çŸ­è¯­ã€BM25 åŠåˆ†é¡µ
+    std::vector<std::string> tokens = query_tokenizer_.tokenize_raw_query(query_string);
+    size_t pos = 0;
+    auto result = evaluate_expression(tokens, pos, options);
+    std::sort(result.begin(), result.end(), std::greater<ScoredDoc>());
+    //  Apply offset and top_k
+    if (options.offset >= result.size())
     {
         return {};
     }
-    
-    std::unordered_map<DocId, double> merged_Scores;
-    for (const auto & part : OR_part)
+    size_t end = std::min(result.size(), options.offset + options.top_k);
+    return std::vector<ScoredDoc>(result.begin() + options.offset, result.begin() + end);
+}
+
+//  é€’å½’ä¸‹é™è§£æï¼šexpression -> term { OR term }
+std::vector<ScoredDoc> QueryProcessor::evaluate_expression(const std::vector<std::string>& tokens, size_t& pos, const QueryOptions& options)
+{
+    auto left_map = scored_to_map(evaluate_term(tokens, pos, options));
+    while (pos < tokens.size())
     {
-        auto result=evaluate_AND_NOT_query(part);
-        for (const auto & doc : result)
+        std::string op = jia::to_lower(tokens[pos]);
+        if (op != "or")
         {
-            // ºÏ²¢²ßÂÔ£ºÍ¬Ò» doc È¡×î´óµÄ·ÖÊı£¨OR ÒâÎ¶ÈÎÒ»×Ó¾äÃüÖĞ¼´¿É£©
-            if (merged_Scores.find(doc.doc_id)==merged_Scores.end()||doc.score>merged_Scores[doc.doc_id])
+            break;
+        }
+        ++pos;
+        auto right_map = scored_to_map(evaluate_term(tokens, pos, options));
+        left_map = merge_or(left_map, right_map);
+    }
+    return vector_to_scored(left_map);
+}
+
+//  term -> factor { AND factor }ï¼Œè´Ÿè´£å¤„ç†ä¸­é—´ä¼˜å…ˆçº§çš„ AND ä»¥åŠå‰ç½® NOTã€‚ï¼Œæ”¯æŒ NOT
+std::vector<ScoredDoc> QueryProcessor::evaluate_term(const std::vector<std::string>& tokens, size_t& pos, const QueryOptions& options)
+{
+    std::unordered_map<DocId, double> current;
+    bool initialized = false;
+    while (pos < tokens.size())
+    {
+        std::string token_lower = jia::to_lower(tokens[pos]);
+        if (token_lower == "or" || tokens[pos] == ")")
+        {
+            break;
+        }
+        if (token_lower == "and")
+        {
+            ++pos;
+            continue;
+        }
+        bool is_not = false;
+        if (token_lower == "not")
+        {
+            is_not = true;
+            ++pos;
+        }
+        auto factor_vec = evaluate_factor(tokens, pos, options);
+        auto factor_map = scored_to_map(factor_vec);
+        if (!initialized)
+        {
+            if (is_not)
             {
-                merged_Scores[doc.doc_id] = doc.score;
+                current = merge_not(get_all_docs_universe(), factor_map);
+            }
+            else
+            {
+                current = factor_map;
+            }
+            initialized = true;
+        }
+        else
+        {
+            if (is_not)
+            {
+                current = merge_not(current, factor_map);
+            }
+            else
+            {
+                current = merge_and(current, factor_map);
             }
         }
     }
-
-    std::vector<ScoredDoc> final_result;
-    for (const auto & pair : merged_Scores)
-    {
-        final_result.push_back({ pair.first,pair.second });
-    }
-
-
-    // ²¢ĞĞÅÅĞò£¬¼ÓËÙ´ó½á¹û¼¯µÄÅÅĞò²Ù×÷
-    std::sort(std::execution::par,final_result.begin(), final_result.end(), std::greater<ScoredDoc>());
-    
-    return final_result;
-    
+    return vector_to_scored(current);
 }
+
+//  factor -> (expression) | term | phraseï¼šåŸºç¡€å•å…ƒï¼Œæ”¯æŒæ‹¬å·åˆ†ç»„ä¸çŸ­è¯­æŸ¥è¯¢ã€‚
+std::vector<ScoredDoc> QueryProcessor::evaluate_factor(const std::vector<std::string>& tokens, size_t& pos, const QueryOptions& options)
+{
+    if (pos >= tokens.size())
+    {
+        return {};
+    }
+    if (tokens[pos] == "(")
+    {
+        ++pos;
+        auto res = evaluate_expression(tokens, pos, options);
+        if (pos < tokens.size() && tokens[pos] == ")")
+        {
+            ++pos;
+        }
+        return res;
+    }
+    std::vector<ScoredDoc> result;
+    std::string token_value = tokens[pos];
+    if (is_phrase_token(token_value))
+    {
+        auto phrase_terms = extract_phrase_terms(token_value);
+        result = rank_phrase(phrase_terms);
+    }
+    else
+    {
+        result = rank_terms({ jia::to_lower(token_value) }, options.use_bm25);
+    }
+    ++pos;
+    return result;
+}
+
+//  map <-> vector è½¬æ¢
+std::vector<ScoredDoc> QueryProcessor::vector_to_scored(const std::unordered_map<DocId, double>& m) const
+{
+    std::vector<ScoredDoc> v;
+    v.reserve(m.size());
+    for (const auto& p : m)
+    {
+        v.push_back({ p.first, p.second });
+    }
+    return v;
+}
+
+std::unordered_map<DocId, double> QueryProcessor::scored_to_map(const std::vector<ScoredDoc>& v) const
+{
+    std::unordered_map<DocId, double> m;
+    for (const auto& s : v)
+    {
+        m[s.doc_id] = s.score;
+    }
+    return m;
+}
+
+//  OR åˆå¹¶ï¼šç›¸åŒæ–‡æ¡£å–æœ€å¤§åˆ†
+std::unordered_map<DocId, double> QueryProcessor::merge_or(const std::unordered_map<DocId, double>& a, const std::unordered_map<DocId, double>& b) const
+{
+    std::unordered_map<DocId, double> res = a;
+    for (const auto& p : b)
+    {
+        auto it = res.find(p.first);
+        if (it == res.end() || p.second > it->second)
+        {
+            res[p.first] = p.second;
+        }
+    }
+    return res;
+}
+
+//  AND åˆå¹¶ï¼šäº¤é›†å¹¶ç´¯åŠ å¾—åˆ†
+std::unordered_map<DocId, double> QueryProcessor::merge_and(const std::unordered_map<DocId, double>& a, const std::unordered_map<DocId, double>& b) const
+{
+    std::unordered_map<DocId, double> res;
+    for (const auto& p : a)
+    {
+        auto it = b.find(p.first);
+        if (it != b.end())
+        {
+            res[p.first] = p.second + it->second;
+        }
+    }
+    return res;
+}
+
+//  NOT åˆå¹¶ï¼šä¿ç•™ a ä¸­ä¸åœ¨ b çš„æ–‡æ¡£
+std::unordered_map<DocId, double> QueryProcessor::merge_not(const std::unordered_map<DocId, double>& a, const std::unordered_map<DocId, double>& b) const
+{
+    std::unordered_map<DocId, double> res;
+    for (const auto& p : a)
+    {
+        if (b.find(p.first) == b.end())
+        {
+            res[p.first] = p.second;
+        }
+    }
+    return res;
+}
+
+//  è·å–å…¨é›† doc ä½œä¸º NOT çš„èµ·ç‚¹
+std::unordered_map<DocId, double> QueryProcessor::get_all_docs_universe() const
+{
+    std::unordered_map<DocId, double> res;
+    for (auto id : index_.get_all_doc_ids())
+    {
+        res[id] = 0.0;
+    }
+    return res;
+}
+
+//  çŸ­è¯­ token åˆ¤å®š
+bool QueryProcessor::is_phrase_token(const std::string& token) const
+{
+    return token.rfind("__PHRASE__", 0) == 0;
+}
+
+//  æ‹†è§£çŸ­è¯­ä¸ºè¯é¡¹
+std::vector<std::string> QueryProcessor::extract_phrase_terms(const std::string& phrase_token) const
+{
+    std::string body = phrase_token.substr(std::string("__PHRASE__").size());
+    // å¤ç”¨æŸ¥è¯¢åˆ†è¯å™¨ï¼Œç¡®ä¿ä¸ç´¢å¼•ä¸€è‡´
+    return query_tokenizer_.tokenize(body);
+}
+
+
 
 
 
